@@ -84,14 +84,22 @@ if poids and not data.empty:
     df_alloc = pd.DataFrame(allocation).T
     df_alloc.columns = ["Poids (%)", "Montant (€)"]
 
+    # --- Palette de base (Plotly officielle) ---
+    base_colors = ['#636EFA', '#EF553B', '#00CC96', '#AB63FA', '#FFA15A',
+                '#19D3F3', '#FF6692', '#B6E880', '#FF97FF', '#FECB52']
+
     with col_pie:
         df_top = df_poids[df_poids['Poids'] > 0.001]
+
+        # --- Création d’un dictionnaire couleur par actif ---
+        color_map = {ticker: base_colors[i % len(base_colors)] for i, ticker in enumerate(df_top.index)}
+
         fig_pie = go.Figure(data=[go.Pie(
             labels=df_top.index,
             values=df_top["Poids"],
             hole=0.4,
             textinfo='label+percent',
-            marker=dict(colors=['#1b4332', '#2d6a4f', '#40916c', '#52b788', '#74c69d', '#95d5b2'])
+            marker=dict(colors=[color_map[t] for t in df_top.index])
         )])
         fig_pie.update_layout(showlegend=False, height=400)
         st.plotly_chart(fig_pie, use_container_width=True)
@@ -109,10 +117,61 @@ if poids and not data.empty:
     # ==========================================================
     # === ONGLET DES GRAPHIQUES ===
     # ==========================================================
-    tab1, tab2, tab3 = st.tabs(["📉 Frontière efficiente", "🎲 Simulation Monte Carlo", "📊 Backtest historique"])
+    tab1, tab2, tab3, tab4 = st.tabs(["💹 Évolution des prix des actifs","📉 Frontière efficiente", "🎲 Simulation Monte Carlo", "📊 Backtest historique"])
+
+    # === Évolution des prix des actifs ===
+    with tab1:
+        try:
+            st.write(f"### 💹 Évolution des prix sur la période : {period}")
+
+            if not data.empty and poids:
+                # --- On ne garde que les actifs qui ont un poids positif ---
+                actifs_selectionnes = [t for t, w in poids.items() if w > 0]
+                data_filtrée = data[actifs_selectionnes].copy()
+
+                # --- Rechargement des données selon la période choisie ---
+                from opti_poids import get_data
+                data_filtrée = get_data(actifs_selectionnes, period=period)
+
+                if not data_filtrée.empty:
+                    fig_prices = go.Figure()
+
+                    for i, ticker in enumerate(data_filtrée.columns):
+                        couleur = color_map.get(ticker, base_colors[i % len(base_colors)])
+                        fig_prices.add_trace(
+                            go.Scatter(
+                                x=data_filtrée.index,
+                                y=data_filtrée[ticker],
+                                mode="lines",
+                                name=ticker,
+                                line=dict(width=2, color=couleur)
+                            )
+                        )
+
+                    fig_prices.update_layout(
+                        title=f"Évolution des prix des {len(actifs_selectionnes)} actifs sélectionnés",
+                        xaxis_title="Date",
+                        yaxis_title="Prix de clôture",
+                        template="plotly_dark",
+                        legend=dict(
+                            orientation="h",
+                            yanchor="bottom",
+                            y=-0.3,
+                            xanchor="center",
+                            x=0.5
+                        ),
+                        height=600
+                    )
+                    st.plotly_chart(fig_prices, use_container_width=True)
+                else:
+                    st.warning("⚠️ Impossible de charger les données pour cette période.")
+            else:
+                st.warning("⚠️ Aucun actif sélectionné dans le portefeuille optimal.")
+        except Exception as e:
+            st.error(f"Erreur affichage évolution des prix des actifs : {e}")
 
     # === FRONTIÈRE EFFICIENTE ===
-    with tab1:
+    with tab2:
         try:
             bounds = (-1, 1) if allow_short else (0, 1)
             ef_tmp = EfficientFrontier(mu, S, weight_bounds=bounds)
@@ -156,7 +215,7 @@ if poids and not data.empty:
             st.error(f"Erreur affichage frontière efficiente : {e}")
 
     # === MONTE CARLO ===
-    with tab2:
+    with tab3:
         n_sim = st.slider("Nombre de simulations", 500, 5000, 1000, step=500)
         horizon = st.slider("Horizon (mois)", 6, 60, 12, step=6)
         mu_month = metrics["Rendement mensuel attendu"]
@@ -191,7 +250,7 @@ if poids and not data.empty:
         st.plotly_chart(fig_mc, use_container_width=True)
 
     # === BACKTEST ===
-    with tab3:
+    with tab4:
         if not cumulative.empty:
             st.line_chart(cumulative, use_container_width=True)
             st.write(f"**Rendement total :** {stats['Rendement total']:.2%}")
