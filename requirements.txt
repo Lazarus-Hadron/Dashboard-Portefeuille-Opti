@@ -2,4 +2,4 @@ streamlit
 yfinance
 pandas
 numpy
-pypfopt
+git+https://github.com/robertmartin8/PyPortfolioOpt.git
